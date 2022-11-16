@@ -3,7 +3,7 @@
 Quantum complex exponential least squares (QCELS) can be used to
 estimate the ground-state energy with reduced circuit depth. 
 
-Last revision: 11/2/2022
+Last revision: 11/15/2022
 """
 
 import scipy.io as sio
@@ -25,6 +25,22 @@ def generate_QPE_distribution(spectrum,population,J):
         dist += population[k] * fejer_kernel.eval_Fejer_kernel(J,j_arr-spectrum[k])/J
     return dist
 
+def generate_ts_distribution(T,NT):
+    ts=np.zeros(NT)
+    for n in range(NT):
+         ts[n]=sample_linear(T)
+         #ts[n]=sample_Gaussian(T)
+    return ts
+
+def sample_linear(T):
+    ts_sample=T*np.random.uniform(0,1)
+    ts_sample=ts_sample*2*((np.random.uniform(0,1)>1/2)-1/2)
+    return ts_sample
+
+def sample_Gaussian(T):
+    ts_sample=np.random.normal(0,T)
+    return ts_sample
+    
 def get_estimated_ground_energy_rough(d,delta,spectrum,population,Nsample,Nbatch):
     
     F_coeffs = fourier_filter.F_fourier_coeffs(d,delta)
@@ -87,7 +103,16 @@ def generate_Z_est(spectrum,population,t,Nsample):
     max_time = t
     total_time = t * Nsample
     return Z_est, total_time, max_time 
-       
+
+def generate_Z_est_multimodal(spectrum,population,T,NT):
+    ts = generate_ts_distribution(T,NT)
+    max_time = max(np.abs(ts))
+    total_time = sum(np.abs(ts))
+    Z_est = np.zeros(NT,dtype = 'complex_')
+    for n in range(NT):
+        Z_est[n], _ =generate_Z_est(spectrum,population,ts[n],1)
+    return Z_est, ts, total_time, max_time 
+
 
 def generate_spectrum_population(eigenenergies, population, p):
 
@@ -101,10 +126,11 @@ def generate_spectrum_population(eigenenergies, population, p):
 
 def qcels_opt_fun(x, ts, Z_est):
     NT = ts.shape[0]
-    Z_fit=np.zeros(NT,dtype = 'complex_')
-    for i in range(NT):
-        Z_fit=(x[0]+1j*x[1])*np.exp(-1j*x[2]*ts)
-    return (np.linalg.norm(Z_fit-Z_est)/NT)
+    N_x=int(len(x)/3)
+    Z_fit = np.zeros(NT,dtype = 'complex_')
+    for n in range(N_x) 
+       Z_fit = Z_fit + (x[3*n]+1j*x[3*n+1])*np.exp(-1j*x[3*n+2]*ts)
+    return (np.linalg.norm(Z_fit-Z_est)**2/NT)
 
 def qcels_opt(ts, Z_est, x0, bounds = None, method = 'SLSQP'):
 
@@ -116,6 +142,14 @@ def qcels_opt(ts, Z_est, x0, bounds = None, method = 'SLSQP'):
 
     return res
 
+def qcels_opt_multimodal(ts, Z_est, x0, bounds = None, method = 'SLSQP'):
+    ###need modify
+    fun = lambda x: qcels_opt_fun(x, ts, Z_est)
+    if( bounds ):
+        res=minimize(fun,x0,method = 'SLSQP',bounds=bounds)
+    else:
+        res=minimize(fun,x0,method = 'SLSQP',bounds=bounds)
+    return res
 
 def qcels_largeoverlap(spectrum, population, T, NT, Nsample, lambda_prior):
     """Multi-level QCELS for systems a large initial overlap.
@@ -236,6 +270,59 @@ def qcels_smalloverlap(spectrum, population, T, NT, d, rel_gap, err_tol_rough, N
 
     return ground_energy_estimate_QCELS, total_time_all, max_time_all
 
+def qcels_multimodal(spectrum, population, T_0, T, NT_0, NT, lambda_prior):
+    """Multi-level QCELS for systems with multimodal.
+
+    Description:
+
+    Args:
+
+    Returns:
+
+    """
+    lambda_prior=np.array(lambda_prior)
+    M=len(lambda_prior)
+    total_time_all = 0.
+    max_time_all = 0.
+    N_level=int(np.log2(T/T_0))
+    Z_est=np.zeros(NT,dtype = 'complex_')
+    x0=np.zeros(3*M,dtype = 'complex_')
+    bnds==np.zeros(6*M,dtype = 'complex_')
+    Z_est, ts, total_time, max_time=generate_Z_est_multimodal(
+        spectrum,population,T_0,NT_0) #Approximate <\psi|\exp(-itH)|\psi> using Hadmard test
+    total_time_all += total_time
+    max_time_all = max(max_time_all, max_time)
+    #Step up and solve the optimization problem
+    for n in range(M):
+       x0[3*n:3*n+3]=np.arrary((0.5,0,lambda_prior[n]))
+    res = qcels_opt_multimodal(ts, Z_est, x0)#Solve the optimization problem
+    #Update initial guess for next iteration
+    x0=np.array(res.x)
+    #Update the estimation interval
+    for n in range(M):
+       bnds[6*n]=-np.inf
+       bnds[6*n+1]=np.inf
+       bnds[6*n+2]=-np.inf
+       bnds[6*n+3]=np.inf
+       bnds[6*n+4]=x0[3*n+2]-np.pi/T_0
+       bnds[6*n+5]=x0[3*n+2]+np.pi/T_0
+    #Iteration
+    for n_QCELS in range(N_level):
+        T=T_0*2**(n_QCELS+1)
+        Z_est, ts, total_time, max_time=generate_Z_est_multimodal(
+            spectrum,population,T,NT) #Approximate <\psi|\exp(-itH)|\psi> using Hadmard test
+        total_time_all += total_time
+        max_time_all = max(max_time_all, max_time)
+        #Step up and solve the optimization problem
+        res = qcels_opt_multimodal(ts, Z_est, x0, bounds=bnds)#Solve the optimization problem
+        #Update initial guess for next iteration
+        x0=np.array(res.x)
+        #Update the estimation interval
+        for n in range(M):
+           bnds[6*n+4]=x0[3*n+2]-np.pi/T
+           bnds[6*n+5]=x0[3*n+2]+np.pi/T
+
+    return x0, total_time_all, max_time_all
 
 if __name__ == "__main__":
     import scipy.io as sio
