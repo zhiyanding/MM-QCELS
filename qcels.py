@@ -110,7 +110,7 @@ def generate_Z_est_multimodal(spectrum,population,T,NT):
     total_time = sum(np.abs(ts))
     Z_est = np.zeros(NT,dtype = 'complex_')
     for n in range(NT):
-        Z_est[n], _ =generate_Z_est(spectrum,population,ts[n],1)
+        Z_est[n], _ , _ =generate_Z_est(spectrum,population,ts[n],1)
     return Z_est, ts, total_time, max_time 
 
 
@@ -128,7 +128,7 @@ def qcels_opt_fun(x, ts, Z_est):
     NT = ts.shape[0]
     N_x=int(len(x)/3)
     Z_fit = np.zeros(NT,dtype = 'complex_')
-    for n in range(N_x) 
+    for n in range(N_x):
        Z_fit = Z_fit + (x[3*n]+1j*x[3*n+1])*np.exp(-1j*x[3*n+2]*ts)
     return (np.linalg.norm(Z_fit-Z_est)**2/NT)
 
@@ -286,19 +286,21 @@ def qcels_multimodal(spectrum, population, T_0, T, NT_0, NT, lambda_prior):
     max_time_all = 0.
     N_level=int(np.log2(T/T_0))
     Z_est=np.zeros(NT,dtype = 'complex_')
-    x0=np.zeros(3*M,dtype = 'complex_')
-    bnds==np.zeros(6*M,dtype = 'complex_')
+    x0=np.zeros(3*M,dtype = 'float')
     Z_est, ts, total_time, max_time=generate_Z_est_multimodal(
         spectrum,population,T_0,NT_0) #Approximate <\psi|\exp(-itH)|\psi> using Hadmard test
     total_time_all += total_time
     max_time_all = max(max_time_all, max_time)
     #Step up and solve the optimization problem
     for n in range(M):
-       x0[3*n:3*n+3]=np.arrary((0.5,0,lambda_prior[n]))
+       x0[3*n:3*n+3]=np.array((0.5,0,lambda_prior[n]))
+    print(x0)
     res = qcels_opt_multimodal(ts, Z_est, x0)#Solve the optimization problem
     #Update initial guess for next iteration
     x0=np.array(res.x)
+    print(x0)
     #Update the estimation interval
+    bnds=np.zeros(6*M,dtype = 'float')
     for n in range(M):
        bnds[6*n]=-np.inf
        bnds[6*n+1]=np.inf
@@ -306,6 +308,7 @@ def qcels_multimodal(spectrum, population, T_0, T, NT_0, NT, lambda_prior):
        bnds[6*n+3]=np.inf
        bnds[6*n+4]=x0[3*n+2]-np.pi/T_0
        bnds[6*n+5]=x0[3*n+2]+np.pi/T_0
+    bnds= [(bnds[i], bnds[i+1]) for i in range(0, len(bnds), 2)]
     #Iteration
     for n_QCELS in range(N_level):
         T=T_0*2**(n_QCELS+1)
@@ -318,10 +321,16 @@ def qcels_multimodal(spectrum, population, T_0, T, NT_0, NT, lambda_prior):
         #Update initial guess for next iteration
         x0=np.array(res.x)
         #Update the estimation interval
+        bnds=np.zeros(6*M,dtype = 'float')
         for n in range(M):
+           bnds[6*n]=-np.inf
+           bnds[6*n+1]=np.inf
+           bnds[6*n+2]=-np.inf
+           bnds[6*n+3]=np.inf
            bnds[6*n+4]=x0[3*n+2]-np.pi/T
            bnds[6*n+5]=x0[3*n+2]+np.pi/T
-
+        bnds= [(bnds[i], bnds[i+1]) for i in range(0, len(bnds), 2)]
+    print(x0,'one iteration ends')
     return x0, total_time_all, max_time_all
 
 if __name__ == "__main__":
