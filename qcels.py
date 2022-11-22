@@ -131,16 +131,12 @@ def qcels_opt_fun(x, ts, Z_est):
        Z_fit = Z_fit + (x[3*n]+1j*x[3*n+1])*np.exp(-1j*x[3*n+2]*ts)
     return (np.linalg.norm(Z_fit-Z_est)**2/NT)
 
-def qcels_opt_fun_coord(x, ts, Z_est, x0, d):
+def qcels_opt_fun_coeff(x, ts, Z_est, x0):
     NT = ts.shape[0]
     N_x=int(len(x0)/3)
     Z_fit = np.zeros(NT,dtype = 'complex_')
-    z0=x0
-    z0[3*d]=x[0]
-    z0[3*d+1]=x[1]
-    z0[3*d+2]=x[2]
     for n in range(N_x):
-       Z_fit = Z_fit + (z0[3*n]+1j*z0[3*n+1])*np.exp(-1j*z0[3*n+2]*ts)
+       Z_fit = Z_fit + (x[2*n]+1j*x[2*n+1])*np.exp(-1j*x0[3*n+2]*ts)
     return (np.linalg.norm(Z_fit-Z_est)**2/NT)
 
 def qcels_opt(ts, Z_est, x0, bounds = None, method = 'SLSQP'):
@@ -156,11 +152,61 @@ def qcels_opt(ts, Z_est, x0, bounds = None, method = 'SLSQP'):
 def qcels_opt_multimodal(ts, Z_est, x0, bounds = None, method = 'SLSQP'):
     ###need modify
     fun = lambda x: qcels_opt_fun(x, ts, Z_est)
+    N_x=int(len(x0)/3)
+    bnds=np.zeros(6*N_x,dtype = 'float')
+    for n in range(N_x):
+       bnds[6*n]=-1
+       bnds[6*n+1]=1
+       bnds[6*n+2]=-1
+       bnds[6*n+3]=1
+       bnds[6*n+4]=-np.inf
+       bnds[6*n+5]=np.inf
+    bnds= [(bnds[i], bnds[i+1]) for i in range(0, len(bnds), 2)]
     if( bounds ):
         res=minimize(fun,x0,method = 'SLSQP',bounds=bounds)
     else:
         res=minimize(fun,x0,method = 'SLSQP',bounds=bounds)
     return res
+
+def qcels_opt_coordinate_wise(ts, Z_est, x0, bounds = None, method = 'SLSQP'):
+    ###need modify
+    x_out=x0
+    Z_est_new = Z_est
+    N_x=int(len(x0)/3)
+    for n in range(N_x):
+       Z_est_new = Z_est_new - (x0[3*n]+1j*x0[3*n+1])*np.exp(-1j*x0[3*n+2]*ts)
+    for d in range(int(len(x0)/3)):
+        Z_est_new = Z_est_new + (x_out[3*d]+1j*x_out[3*d+1])*np.exp(-1j*x_out[3*d+2]*ts)
+        fun = lambda x: qcels_opt_fun(x, ts, Z_est_new)    
+        if( bounds ):
+            res=minimize(fun,x0[3*d:3*d+3],method = 'SLSQP',bounds=bounds)
+        else:
+            res=minimize(fun,x0[3*d:3*d+3],method = 'SLSQP',bounds=bounds)
+        x_out[3*d:3*d+3]=res.x
+        Z_est_new = Z_est_new - (x_out[3*d]+1j*x_out[3*d+1])*np.exp(-1j*x_out[3*d+2]*ts)
+    return x_out
+
+def qcels_opt_coeff_first(ts, Z_est, x0, bounds = None, method = 'SLSQP'):
+    ###need modify
+    N_x=int(len(x0)/3)
+    coeff=np.zeros(N_x*2)
+    bnds=np.zeros(4*N_x,dtype = 'float')
+    for n in range(N_x):
+       bnds[4*n]=-1
+       bnds[4*n+1]=1
+       bnds[4*n+2]=-1
+       bnds[4*n+3]=1
+    bnds= [(bnds[i], bnds[i+1]) for i in range(0, len(bnds), 2)]
+    for n in range(N_x):
+       coeff[2*n]=x0[3*n]
+       coeff[2*n+1]=x0[3*n+1]
+    fun = lambda x: qcels_opt_fun_coeff(x, ts, Z_est, x0)    
+    res=minimize(fun,coeff,method = 'SLSQP',bounds=bnds)
+    x_out=x0
+    for n in range(N_x):
+       x_out[3*n]=res.x[2*n]
+       x_out[3*n+1]=res.x[2*n+1]
+    return x_out
 
 def qcels_opt_coordinate_wise(ts, Z_est, x0, bounds = None, method = 'SLSQP'):
     ###need modify
@@ -322,9 +368,11 @@ def qcels_multimodal(spectrum, population, T_0, T, NT_0, NT, lambda_prior):
     max_time_all = max(max_time_all, max_time)
     #Step up and solve the optimization problem
     for n in range(M):
-       x0[3*n:3*n+3]=np.array((0.5,0,lambda_prior[n]))
+       x0[3*n:3*n+3]=np.array((np.random.uniform(0,1),0,lambda_prior[n]))
     #print(x0)
     #x0 = qcels_opt_coordinate_wise(ts, Z_est, x0)
+    x0 = qcels_opt_coeff_first(ts, Z_est, x0)
+    #print(x0)
     res = qcels_opt_multimodal(ts, Z_est, x0)#Solve the optimization problem
     #Update initial guess for next iteration
     x0=np.array(res.x)
@@ -332,10 +380,10 @@ def qcels_multimodal(spectrum, population, T_0, T, NT_0, NT, lambda_prior):
     #Update the estimation interval
     bnds=np.zeros(6*M,dtype = 'float')
     for n in range(M):
-       bnds[6*n]=-np.inf
-       bnds[6*n+1]=np.inf
-       bnds[6*n+2]=-np.inf
-       bnds[6*n+3]=np.inf
+       bnds[6*n]=-1
+       bnds[6*n+1]=1
+       bnds[6*n+2]=-1
+       bnds[6*n+3]=1
        bnds[6*n+4]=x0[3*n+2]-np.pi/T_0
        bnds[6*n+5]=x0[3*n+2]+np.pi/T_0
     bnds= [(bnds[i], bnds[i+1]) for i in range(0, len(bnds), 2)]
@@ -353,10 +401,10 @@ def qcels_multimodal(spectrum, population, T_0, T, NT_0, NT, lambda_prior):
         #Update the estimation interval
         bnds=np.zeros(6*M,dtype = 'float')
         for n in range(M):
-           bnds[6*n]=-np.inf
-           bnds[6*n+1]=np.inf
-           bnds[6*n+2]=-np.inf
-           bnds[6*n+3]=np.inf
+           bnds[6*n]=-1
+           bnds[6*n+1]=1
+           bnds[6*n+2]=-1
+           bnds[6*n+3]=1
            bnds[6*n+4]=x0[3*n+2]-np.pi/T
            bnds[6*n+5]=x0[3*n+2]+np.pi/T
         bnds= [(bnds[i], bnds[i+1]) for i in range(0, len(bnds), 2)]
