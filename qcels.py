@@ -119,7 +119,6 @@ def generate_spectrum_population(eigenenergies, population, p):
     p = np.array(p)
     spectrum = eigenenergies * 0.25*np.pi/np.max(np.abs(eigenenergies))#normalize the spectrum
     q = population
-    print(p)
     num_p = p.shape[0]
     q[0:num_p] = p/(1-np.sum(p))*np.sum(q[num_p:])
     return spectrum, q/np.sum(q)
@@ -130,6 +129,18 @@ def qcels_opt_fun(x, ts, Z_est):
     Z_fit = np.zeros(NT,dtype = 'complex_')
     for n in range(N_x):
        Z_fit = Z_fit + (x[3*n]+1j*x[3*n+1])*np.exp(-1j*x[3*n+2]*ts)
+    return (np.linalg.norm(Z_fit-Z_est)**2/NT)
+
+def qcels_opt_fun_coord(x, ts, Z_est, x0, d):
+    NT = ts.shape[0]
+    N_x=int(len(x0)/3)
+    Z_fit = np.zeros(NT,dtype = 'complex_')
+    z0=x0
+    z0[3*d]=x[0]
+    z0[3*d+1]=x[1]
+    z0[3*d+2]=x[2]
+    for n in range(N_x):
+       Z_fit = Z_fit + (z0[3*n]+1j*z0[3*n+1])*np.exp(-1j*z0[3*n+2]*ts)
     return (np.linalg.norm(Z_fit-Z_est)**2/NT)
 
 def qcels_opt(ts, Z_est, x0, bounds = None, method = 'SLSQP'):
@@ -150,6 +161,24 @@ def qcels_opt_multimodal(ts, Z_est, x0, bounds = None, method = 'SLSQP'):
     else:
         res=minimize(fun,x0,method = 'SLSQP',bounds=bounds)
     return res
+
+def qcels_opt_coordinate_wise(ts, Z_est, x0, bounds = None, method = 'SLSQP'):
+    ###need modify
+    x_out=x0
+    Z_est_new = Z_est
+    N_x=int(len(x0)/3)
+    for n in range(N_x):
+       Z_est_new = Z_est_new - (x0[3*n]+1j*x0[3*n+1])*np.exp(-1j*x0[3*n+2]*ts)
+    for d in range(int(len(x0)/3)):
+        Z_est_new = Z_est_new + (x_out[3*d]+1j*x_out[3*d+1])*np.exp(-1j*x_out[3*d+2]*ts)
+        fun = lambda x: qcels_opt_fun(x, ts, Z_est_new)    
+        if( bounds ):
+            res=minimize(fun,x0[3*d:3*d+3],method = 'SLSQP',bounds=bounds)
+        else:
+            res=minimize(fun,x0[3*d:3*d+3],method = 'SLSQP',bounds=bounds)
+        x_out[3*d:3*d+3]=res.x
+        Z_est_new = Z_est_new - (x_out[3*d]+1j*x_out[3*d+1])*np.exp(-1j*x_out[3*d+2]*ts)
+    return x_out
 
 def qcels_largeoverlap(spectrum, population, T, NT, Nsample, lambda_prior):
     """Multi-level QCELS for systems a large initial overlap.
@@ -294,11 +323,12 @@ def qcels_multimodal(spectrum, population, T_0, T, NT_0, NT, lambda_prior):
     #Step up and solve the optimization problem
     for n in range(M):
        x0[3*n:3*n+3]=np.array((0.5,0,lambda_prior[n]))
-    print(x0)
+    #print(x0)
+    #x0 = qcels_opt_coordinate_wise(ts, Z_est, x0)
     res = qcels_opt_multimodal(ts, Z_est, x0)#Solve the optimization problem
     #Update initial guess for next iteration
     x0=np.array(res.x)
-    print(x0)
+    #print(x0)
     #Update the estimation interval
     bnds=np.zeros(6*M,dtype = 'float')
     for n in range(M):
@@ -330,7 +360,7 @@ def qcels_multimodal(spectrum, population, T_0, T, NT_0, NT, lambda_prior):
            bnds[6*n+4]=x0[3*n+2]-np.pi/T
            bnds[6*n+5]=x0[3*n+2]+np.pi/T
         bnds= [(bnds[i], bnds[i+1]) for i in range(0, len(bnds), 2)]
-    print(x0,'one iteration ends')
+    #print(x0,'one iteration ends',T)
     return x0, total_time_all, max_time_all
 
 if __name__ == "__main__":
