@@ -15,7 +15,7 @@ import cmath
 import fejer_kernel
 import fourier_filter
 import generate_cdf
-
+from scipy.stats import truncnorm
 
 def generate_QPE_distribution(spectrum,population,J):
     N = len(spectrum)
@@ -26,24 +26,11 @@ def generate_QPE_distribution(spectrum,population,J):
     return dist
 
 def generate_ts_distribution(T,NT,gamma):
-    ts=np.zeros(NT)
-    for n in range(NT):
-        if gamma==0:
-          ts[n]=sample_linear(T)
-        else:
-          ts[n]=sample_Gaussian(T,gamma)
+    if gamma==0:
+       ts=T*np.random.uniform(-1,1,NT)
+    else:
+       ts=truncnorm.rvs(-gamma, gamma, loc=0, scale=T, size=NT)
     return ts
-
-def sample_linear(T):
-    ts_sample=T*np.random.uniform(0,1)
-    ts_sample=ts_sample*2*((np.random.uniform(0,1)>1/2)-1/2)
-    return ts_sample
-
-def sample_Gaussian(T,gamma):
-    ts_sample=np.random.normal(0,1)*T
-    Tmax=gamma*T
-    ts_sample=(np.abs(ts_sample)<Tmax)*ts_sample+(ts_sample>Tmax)*Tmax+(ts_sample<-Tmax)*-Tmax
-    return ts_sample
     
 def get_estimated_ground_energy_rough(d,delta,spectrum,population,Nsample,Nbatch):
     
@@ -90,31 +77,27 @@ def generate_filtered_Z_est(spectrum,population,t,x,d,delta,Nsample,Nbatch):
     return y_avg, total_time, max_time
 
 
-def generate_Z_est(spectrum,population,t,Nsample):
-    Re=0
-    Im=0
-    z=np.dot(population,np.exp(-1j*spectrum*t))
-    Re_true=(1+z.real)/2
-    Im_true=(1+z.imag)/2
-    #Simulate Hadmard test
-    for nt in range(Nsample):
-        if np.random.uniform(0,1)<Re_true:
-           Re+=1
-    for nt2 in range(Nsample):
-        if np.random.uniform(0,1)<Im_true:
-           Im+=1
-    Z_est = complex(2*Re/Nsample-1,2*Im/Nsample-1)
-    max_time = t
-    total_time = t * Nsample
+def generate_Z_est(spectrum,population,tn,Nsample):
+    N=len(tn)
+    z=population.dot(np.exp(-1j*np.outer(spectrum,tn)))
+    Re_true=(1+np.real(z))/2
+    Im_true=(1+np.imag(z))/2
+    Re_true=np.ones((Nsample, 1)) * Re_true
+    Im_true=np.ones((Nsample, 1)) * Im_true
+    Re_random=np.random.uniform(0,1,(Nsample,N))
+    Im_random=np.random.uniform(0,1,(Nsample,N))
+    Re=np.sum(Re_random<Re_true,axis=0)/Nsample
+    Im=np.sum(Im_random<Im_true,axis=0)/Nsample
+    Z_est = (2*Re-1)+1j*(2*Im-1)
+    max_time = max(np.abs(tn))
+    total_time = sum(np.abs(tn))
     return Z_est, total_time, max_time 
 
 def generate_Z_est_multimodal(spectrum,population,T,NT,gamma):
     ts = generate_ts_distribution(T,NT,gamma)
     max_time = max(np.abs(ts))
     total_time = sum(np.abs(ts))
-    Z_est = np.zeros(NT,dtype = 'complex_')
-    for n in range(NT):
-        Z_est[n], _ , _ =generate_Z_est(spectrum,population,ts[n],1)
+    Z_est, _ , _ =generate_Z_est(spectrum,population,ts,1)
     return Z_est, ts, total_time, max_time 
 
 
@@ -172,23 +155,23 @@ def qcels_opt_multimodal(ts, Z_est, x0, bounds = None, method = 'SLSQP'):
         res=minimize(fun,x0,method = 'SLSQP',bounds=bounds)
     return res
 
-def qcels_opt_coordinate_wise(ts, Z_est, x0, bounds = None, method = 'SLSQP'):
-    ###need modify
-    x_out=x0
-    Z_est_new = Z_est
-    N_x=int(len(x0)/3)
-    for n in range(N_x):
-       Z_est_new = Z_est_new - (x0[3*n]+1j*x0[3*n+1])*np.exp(-1j*x0[3*n+2]*ts)
-    for d in range(int(len(x0)/3)):
-        Z_est_new = Z_est_new + (x_out[3*d]+1j*x_out[3*d+1])*np.exp(-1j*x_out[3*d+2]*ts)
-        fun = lambda x: qcels_opt_fun(x, ts, Z_est_new)    
-        if( bounds ):
-            res=minimize(fun,x0[3*d:3*d+3],method = 'SLSQP',bounds=bounds)
-        else:
-            res=minimize(fun,x0[3*d:3*d+3],method = 'SLSQP',bounds=bounds)
-        x_out[3*d:3*d+3]=res.x
-        Z_est_new = Z_est_new - (x_out[3*d]+1j*x_out[3*d+1])*np.exp(-1j*x_out[3*d+2]*ts)
-    return x_out
+# def qcels_opt_coordinate_wise(ts, Z_est, x0, bounds = None, method = 'SLSQP'):
+#     ###need modify
+#     x_out=x0
+#     Z_est_new = Z_est
+#     N_x=int(len(x0)/3)
+#     for n in range(N_x):
+#        Z_est_new = Z_est_new - (x0[3*n]+1j*x0[3*n+1])*np.exp(-1j*x0[3*n+2]*ts)
+#     for d in range(int(len(x0)/3)):
+#         Z_est_new = Z_est_new + (x_out[3*d]+1j*x_out[3*d+1])*np.exp(-1j*x_out[3*d+2]*ts)
+#         fun = lambda x: qcels_opt_fun(x, ts, Z_est_new)    
+#         if( bounds ):
+#             res=minimize(fun,x0[3*d:3*d+3],method = 'SLSQP',bounds=bounds)
+#         else:
+#             res=minimize(fun,x0[3*d:3*d+3],method = 'SLSQP',bounds=bounds)
+#         x_out[3*d:3*d+3]=res.x
+#         Z_est_new = Z_est_new - (x_out[3*d]+1j*x_out[3*d+1])*np.exp(-1j*x_out[3*d+2]*ts)
+#     return x_out
 
 def qcels_opt_coeff_first(ts, Z_est, x0, bounds = None, method = 'SLSQP'):
     ###need modify
@@ -212,23 +195,23 @@ def qcels_opt_coeff_first(ts, Z_est, x0, bounds = None, method = 'SLSQP'):
        x_out[3*n+1]=res.x[2*n+1]
     return x_out
 
-def qcels_opt_coordinate_wise(ts, Z_est, x0, bounds = None, method = 'SLSQP'):
-    ###need modify
-    x_out=x0
-    Z_est_new = Z_est
-    N_x=int(len(x0)/3)
-    for n in range(N_x):
-       Z_est_new = Z_est_new - (x0[3*n]+1j*x0[3*n+1])*np.exp(-1j*x0[3*n+2]*ts)
-    for d in range(int(len(x0)/3)):
-        Z_est_new = Z_est_new + (x_out[3*d]+1j*x_out[3*d+1])*np.exp(-1j*x_out[3*d+2]*ts)
-        fun = lambda x: qcels_opt_fun(x, ts, Z_est_new)    
-        if( bounds ):
-            res=minimize(fun,x0[3*d:3*d+3],method = 'SLSQP',bounds=bounds)
-        else:
-            res=minimize(fun,x0[3*d:3*d+3],method = 'SLSQP',bounds=bounds)
-        x_out[3*d:3*d+3]=res.x
-        Z_est_new = Z_est_new - (x_out[3*d]+1j*x_out[3*d+1])*np.exp(-1j*x_out[3*d+2]*ts)
-    return x_out
+# def qcels_opt_coordinate_wise(ts, Z_est, x0, bounds = None, method = 'SLSQP'):
+#     ###need modify
+#     x_out=x0
+#     Z_est_new = Z_est
+#     N_x=int(len(x0)/3)
+#     for n in range(N_x):
+#        Z_est_new = Z_est_new - (x0[3*n]+1j*x0[3*n+1])*np.exp(-1j*x0[3*n+2]*ts)
+#     for d in range(int(len(x0)/3)):
+#         Z_est_new = Z_est_new + (x_out[3*d]+1j*x_out[3*d+1])*np.exp(-1j*x_out[3*d+2]*ts)
+#         fun = lambda x: qcels_opt_fun(x, ts, Z_est_new)    
+#         if( bounds ):
+#             res=minimize(fun,x0[3*d:3*d+3],method = 'SLSQP',bounds=bounds)
+#         else:
+#             res=minimize(fun,x0[3*d:3*d+3],method = 'SLSQP',bounds=bounds)
+#         x_out[3*d:3*d+3]=res.x
+#         Z_est_new = Z_est_new - (x_out[3*d]+1j*x_out[3*d+1])*np.exp(-1j*x_out[3*d+2]*ts)
+#     return x_out
 
 def qcels_largeoverlap(spectrum, population, T, NT, Nsample, lambda_prior):
     """Multi-level QCELS for systems a large initial overlap.
@@ -247,11 +230,10 @@ def qcels_largeoverlap(spectrum, population, T, NT, Nsample, lambda_prior):
     Z_est=np.zeros(NT,dtype = 'complex_')
     tau=T/NT/(2**N_level)
     ts=tau*np.arange(NT)
-    for i in range(NT):
-        Z_est[i], total_time, max_time=generate_Z_est(
-                spectrum,population,ts[i],Nsample) #Approximate <\psi|\exp(-itH)|\psi> using Hadmard test
-        total_time_all += total_time
-        max_time_all = max(max_time_all, max_time)
+    Z_est, total_time, max_time=generate_Z_est(
+            spectrum,population,ts,Nsample) #Approximate <\psi|\exp(-itH)|\psi> using Hadmard test
+    total_time_all += total_time
+    max_time_all = max(max_time_all, max_time)
     #Step up and solve the optimization problem
     x0=np.array((0.5,0,lambda_prior))
     res = qcels_opt(ts, Z_est, x0)#Solve the optimization problem
@@ -267,11 +249,10 @@ def qcels_largeoverlap(spectrum, population, T, NT, Nsample, lambda_prior):
         Z_est=np.zeros(NT,dtype = 'complex_')
         tau=T/NT/(2**(N_level-n_QCELS-1)) #generate a sequence of \tau_j
         ts=tau*np.arange(NT)
-        for i in range(NT):
-            Z_est[i], total_time, max_time=generate_Z_est(
-                    spectrum,population,ts[i],Nsample) #Approximate <\psi|\exp(-itH)|\psi> using Hadmard test
-            total_time_all += total_time
-            max_time_all = max(max_time_all, max_time)
+        Z_est, total_time, max_time=generate_Z_est(
+                spectrum,population,ts,Nsample) #Approximate <\psi|\exp(-itH)|\psi> using Hadmard test
+        total_time_all += total_time
+        max_time_all = max(max_time_all, max_time)
         #Step up and solve the optimization problem
         x0=np.array((ground_coefficient_QCELS,ground_coefficient_QCELS2,ground_energy_estimate_QCELS))
         bnds=((-np.inf,np.inf),(-np.inf,np.inf),(lambda_min,lambda_max)) 
