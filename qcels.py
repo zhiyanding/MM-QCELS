@@ -25,11 +25,13 @@ def generate_QPE_distribution(spectrum,population,J):
         dist += population[k] * fejer_kernel.eval_Fejer_kernel(J,j_arr-spectrum[k])/J
     return dist
 
-def generate_ts_distribution(T,NT):
+def generate_ts_distribution(T,NT,gamma):
     ts=np.zeros(NT)
     for n in range(NT):
-         ts[n]=sample_linear(T)
-         #ts[n]=sample_Gaussian(T)
+        if gamma==0:
+          ts[n]=sample_linear(T)
+        else:
+          ts[n]=sample_Gaussian(T,gamma)
     return ts
 
 def sample_linear(T):
@@ -37,8 +39,10 @@ def sample_linear(T):
     ts_sample=ts_sample*2*((np.random.uniform(0,1)>1/2)-1/2)
     return ts_sample
 
-def sample_Gaussian(T):
-    ts_sample=np.random.normal(0,T)
+def sample_Gaussian(T,gamma):
+    ts_sample=np.random.normal(0,1)*T
+    Tmax=gamma*T
+    ts_sample=(np.abs(ts_sample)<Tmax)*ts_sample+(ts_sample>Tmax)*Tmax+(ts_sample<-Tmax)*-Tmax
     return ts_sample
     
 def get_estimated_ground_energy_rough(d,delta,spectrum,population,Nsample,Nbatch):
@@ -104,8 +108,8 @@ def generate_Z_est(spectrum,population,t,Nsample):
     total_time = t * Nsample
     return Z_est, total_time, max_time 
 
-def generate_Z_est_multimodal(spectrum,population,T,NT):
-    ts = generate_ts_distribution(T,NT)
+def generate_Z_est_multimodal(spectrum,population,T,NT,gamma):
+    ts = generate_ts_distribution(T,NT,gamma)
     max_time = max(np.abs(ts))
     total_time = sum(np.abs(ts))
     Z_est = np.zeros(NT,dtype = 'complex_')
@@ -345,7 +349,7 @@ def qcels_smalloverlap(spectrum, population, T, NT, d, rel_gap, err_tol_rough, N
 
     return ground_energy_estimate_QCELS, total_time_all, max_time_all
 
-def qcels_multimodal(spectrum, population, T_0, T, NT_0, NT, lambda_prior):
+def qcels_multimodal(spectrum, population, T_0, T, NT_0, NT, lambda_prior,gamma):
     """Multi-level QCELS for systems with multimodal.
 
     Description:
@@ -363,7 +367,7 @@ def qcels_multimodal(spectrum, population, T_0, T, NT_0, NT, lambda_prior):
     Z_est=np.zeros(NT,dtype = 'complex_')
     x0=np.zeros(3*M,dtype = 'float')
     Z_est, ts, total_time, max_time=generate_Z_est_multimodal(
-        spectrum,population,T_0,NT_0) #Approximate <\psi|\exp(-itH)|\psi> using Hadmard test
+        spectrum,population,T_0,NT_0,gamma) #Approximate <\psi|\exp(-itH)|\psi> using Hadmard test
     total_time_all += total_time
     max_time_all = max(max_time_all, max_time)
     #Step up and solve the optimization problem
@@ -391,7 +395,7 @@ def qcels_multimodal(spectrum, population, T_0, T, NT_0, NT, lambda_prior):
     for n_QCELS in range(N_level):
         T=T_0*2**(n_QCELS+1)
         Z_est, ts, total_time, max_time=generate_Z_est_multimodal(
-            spectrum,population,T,NT) #Approximate <\psi|\exp(-itH)|\psi> using Hadmard test
+            spectrum,population,T,NT,gamma) #Approximate <\psi|\exp(-itH)|\psi> using Hadmard test
         total_time_all += total_time
         max_time_all = max(max_time_all, max_time)
         #Step up and solve the optimization problem
