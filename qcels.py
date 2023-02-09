@@ -1,9 +1,9 @@
 """ Main routines for QCELS 
 
 Quantum complex exponential least squares (QCELS) can be used to
-estimate the ground-state energy with reduced circuit depth. 
+estimate the eigenvalues with reduced circuit depth. 
 
-Last revision: 11/15/2022
+Last revision: 02/09/2023
 """
 
 import scipy.io as sio
@@ -155,24 +155,6 @@ def qcels_opt_multimodal(ts, Z_est, x0, bounds = None, method = 'SLSQP'):
         res=minimize(fun,x0,method = 'SLSQP',bounds=bounds)
     return res
 
-# def qcels_opt_coordinate_wise(ts, Z_est, x0, bounds = None, method = 'SLSQP'):
-#     ###need modify
-#     x_out=x0
-#     Z_est_new = Z_est
-#     N_x=int(len(x0)/3)
-#     for n in range(N_x):
-#        Z_est_new = Z_est_new - (x0[3*n]+1j*x0[3*n+1])*np.exp(-1j*x0[3*n+2]*ts)
-#     for d in range(int(len(x0)/3)):
-#         Z_est_new = Z_est_new + (x_out[3*d]+1j*x_out[3*d+1])*np.exp(-1j*x_out[3*d+2]*ts)
-#         fun = lambda x: qcels_opt_fun(x, ts, Z_est_new)    
-#         if( bounds ):
-#             res=minimize(fun,x0[3*d:3*d+3],method = 'SLSQP',bounds=bounds)
-#         else:
-#             res=minimize(fun,x0[3*d:3*d+3],method = 'SLSQP',bounds=bounds)
-#         x_out[3*d:3*d+3]=res.x
-#         Z_est_new = Z_est_new - (x_out[3*d]+1j*x_out[3*d+1])*np.exp(-1j*x_out[3*d+2]*ts)
-#     return x_out
-
 def qcels_opt_coeff_first(ts, Z_est, x0, bounds = None, method = 'SLSQP'):
     ###need modify
     N_x=int(len(x0)/3)
@@ -195,32 +177,22 @@ def qcels_opt_coeff_first(ts, Z_est, x0, bounds = None, method = 'SLSQP'):
        x_out[3*n+1]=res.x[2*n+1]
     return x_out
 
-# def qcels_opt_coordinate_wise(ts, Z_est, x0, bounds = None, method = 'SLSQP'):
-#     ###need modify
-#     x_out=x0
-#     Z_est_new = Z_est
-#     N_x=int(len(x0)/3)
-#     for n in range(N_x):
-#        Z_est_new = Z_est_new - (x0[3*n]+1j*x0[3*n+1])*np.exp(-1j*x0[3*n+2]*ts)
-#     for d in range(int(len(x0)/3)):
-#         Z_est_new = Z_est_new + (x_out[3*d]+1j*x_out[3*d+1])*np.exp(-1j*x_out[3*d+2]*ts)
-#         fun = lambda x: qcels_opt_fun(x, ts, Z_est_new)    
-#         if( bounds ):
-#             res=minimize(fun,x0[3*d:3*d+3],method = 'SLSQP',bounds=bounds)
-#         else:
-#             res=minimize(fun,x0[3*d:3*d+3],method = 'SLSQP',bounds=bounds)
-#         x_out[3*d:3*d+3]=res.x
-#         Z_est_new = Z_est_new - (x_out[3*d]+1j*x_out[3*d+1])*np.exp(-1j*x_out[3*d+2]*ts)
-#     return x_out
 
 def qcels_largeoverlap(spectrum, population, T, NT, Nsample, lambda_prior):
-    """Multi-level QCELS for systems a large initial overlap.
+    """Multi-level QCELS for a system with a large initial overlap.
 
-    Description:
+    Description: The code of using Multi-level QCELS to estimate the ground state energy for a systems with a large initial overlap
 
-    Args:
+    Args: eigenvalues of the Hamiltonian: spectrum; 
+    overlaps between the initial state and eigenvectors: population; 
+    the depth for generating the data set: T; 
+    number of data pairs: NT; 
+    number of samples: Nsample; 
+    initial guess of \lambda_0: lambda_prior
 
-    Returns:
+    Returns: an estimation of \lambda_0; 
+    maximal evolution time T_{max}; 
+    total evolution time T_{total}
 
     """
     total_time_all = 0.
@@ -269,13 +241,22 @@ def qcels_largeoverlap(spectrum, population, T, NT, Nsample, lambda_prior):
 
 
 def qcels_smalloverlap(spectrum, population, T, NT, d, rel_gap, err_tol_rough, Nsample_rough, Nsample):
-    """Multi-level QCELS with a filtered data set for systems with a small initial overlap.
+   """Multi-level QCELS with a filtered data set for a system with a small initial overlap.
 
-    Description:
+    Description: The codes of using Multi-level QCELS and eigenvalue filter to estimate the ground state energy for
+    a system with a small initial overlap
 
-    Args:
-
-    Returns:
+    Args: eigenvalues of the Hamiltonian: spectrum; 
+    overlaps between the initial state and eigenvectors: population; 
+    the depth for generating the data set: T; 
+    number of data pairs: NT; 
+    number of samples for constructing the eigenvalue filter: Nsample_rough; 
+    number of samples for generating the data set: Nsample; 
+    initial guess of \lambda_0: lambda_prior
+    
+    Returns: an estimation of \lambda_0; 
+    maximal evolution time T_{max}; 
+    total evolution time T_{total}
 
     """
     total_time_all = 0.
@@ -330,14 +311,22 @@ def qcels_smalloverlap(spectrum, population, T, NT, d, rel_gap, err_tol_rough, N
 
     return ground_energy_estimate_QCELS, total_time_all, max_time_all
 
-def qcels_multimodal(spectrum, population, T_0, T, NT_0, NT, gamma, K, lambda_prior):
+def qcels_multimodal(spectrum, population, T_0, T, NT_0, NT, gamma, K, lambda_prior):        
     """Multi-level QCELS for systems with multimodal.
 
-    Description:
+    Description: The code of using Multi-level QCELS to estimate the multiple dominant eigenvalues.
 
-    Args:
-
-    Returns:
+    Args: eigenvalues of the Hamiltonian: spectrum; 
+    overlaps between the initial state and eigenvectors: population; 
+    the depth for generating the data set: T_0mT; 
+    number of data pairs: NT_0, NT; 
+    gaussian cutoff constant: gamma; 
+    initial guess of multiple dominant eigenvalues: lambda_prior
+    Number of dominant eigenvalues: K
+    
+    Returns: an estimation of multiple dominant eigenvalues; 
+    maximal evolution time T_{max}; 
+    total evolution time T_{total}
 
     """
     total_time_all = 0.
