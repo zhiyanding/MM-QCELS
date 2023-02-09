@@ -330,7 +330,7 @@ def qcels_smalloverlap(spectrum, population, T, NT, d, rel_gap, err_tol_rough, N
 
     return ground_energy_estimate_QCELS, total_time_all, max_time_all
 
-def qcels_multimodal(spectrum, population, T_0, T, NT_0, NT, lambda_prior,gamma):
+def qcels_multimodal(spectrum, population, T_0, T, NT_0, NT, gamma, K, lambda_prior):
     """Multi-level QCELS for systems with multimodal.
 
     Description:
@@ -340,19 +340,17 @@ def qcels_multimodal(spectrum, population, T_0, T, NT_0, NT, lambda_prior,gamma)
     Returns:
 
     """
-    lambda_prior=np.array(lambda_prior)
-    M=len(lambda_prior)
     total_time_all = 0.
     max_time_all = 0.
     N_level=int(np.log2(T/T_0))
     Z_est=np.zeros(NT,dtype = 'complex_')
-    x0=np.zeros(3*M,dtype = 'float')
+    x0=np.zeros(3*K,dtype = 'float')
     Z_est, ts, total_time, max_time=generate_Z_est_multimodal(
         spectrum,population,T_0,NT_0,gamma) #Approximate <\psi|\exp(-itH)|\psi> using Hadmard test
     total_time_all += total_time
     max_time_all = max(max_time_all, max_time)
     #Step up and solve the optimization problem
-    for n in range(M):
+    for n in range(K):
        x0[3*n:3*n+3]=np.array((np.random.uniform(0,1),0,lambda_prior[n]))
     #print(x0)
     #x0 = qcels_opt_coordinate_wise(ts, Z_est, x0)
@@ -363,8 +361,8 @@ def qcels_multimodal(spectrum, population, T_0, T, NT_0, NT, lambda_prior,gamma)
     x0=np.array(res.x)
     #print(x0)
     #Update the estimation interval
-    bnds=np.zeros(6*M,dtype = 'float')
-    for n in range(M):
+    bnds=np.zeros(6*K,dtype = 'float')
+    for n in range(K):
        bnds[6*n]=-1
        bnds[6*n+1]=1
        bnds[6*n+2]=-1
@@ -384,8 +382,8 @@ def qcels_multimodal(spectrum, population, T_0, T, NT_0, NT, lambda_prior,gamma)
         #Update initial guess for next iteration
         x0=np.array(res.x)
         #Update the estimation interval
-        bnds=np.zeros(6*M,dtype = 'float')
-        for n in range(M):
+        bnds=np.zeros(6*K,dtype = 'float')
+        for n in range(K):
            bnds[6*n]=-1
            bnds[6*n+1]=1
            bnds[6*n+2]=-1
