@@ -352,10 +352,10 @@ def qcels_multimodal(spectrum, population, T_0, T, NT_0, NT, gamma, K, lambda_pr
     #Update the estimation interval
     bnds=np.zeros(6*K,dtype = 'float')
     for n in range(K):
-       bnds[6*n]=-1
-       bnds[6*n+1]=1
-       bnds[6*n+2]=-1
-       bnds[6*n+3]=1
+       bnds[6*n]=-np.infty
+       bnds[6*n+1]=np.infty
+       bnds[6*n+2]=-np.infty
+       bnds[6*n+3]=np.infty
        bnds[6*n+4]=x0[3*n+2]-np.pi/T_0
        bnds[6*n+5]=x0[3*n+2]+np.pi/T_0
     bnds= [(bnds[i], bnds[i+1]) for i in range(0, len(bnds), 2)]
@@ -373,10 +373,10 @@ def qcels_multimodal(spectrum, population, T_0, T, NT_0, NT, gamma, K, lambda_pr
         #Update the estimation interval
         bnds=np.zeros(6*K,dtype = 'float')
         for n in range(K):
-           bnds[6*n]=-1
-           bnds[6*n+1]=1
-           bnds[6*n+2]=-1
-           bnds[6*n+3]=1
+           bnds[6*n]=-np.infty
+           bnds[6*n+1]=np.infty
+           bnds[6*n+2]=-np.infty
+           bnds[6*n+3]=np.infty
            bnds[6*n+4]=x0[3*n+2]-np.pi/T
            bnds[6*n+5]=x0[3*n+2]+np.pi/T
         bnds= [(bnds[i], bnds[i+1]) for i in range(0, len(bnds), 2)]
@@ -412,10 +412,10 @@ def qcels_multimodal_onestep(spectrum, population, T, NT, gamma, K):
     x0=np.linspace(-np.pi,np.pi,int(max(100,T)))
     bnds=np.zeros(6*K,dtype = 'float')
     for n in range(K):
-       bnds[6*n]=-1
-       bnds[6*n+1]=1
-       bnds[6*n+2]=-1
-       bnds[6*n+3]=1
+       bnds[6*n]=-np.infty
+       bnds[6*n+1]=np.infty
+       bnds[6*n+2]=-np.infty
+       bnds[6*n+3]=np.infty
        bnds[6*n+4]=-np.pi
        bnds[6*n+5]=np.pi
     bnds= [(bnds[i], bnds[i+1]) for i in range(0, len(bnds), 2)]
