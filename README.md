@@ -1,3 +1,3 @@
-# MM-QCELS
-MM-QCELS
-Code for MM-QCELS
+# QCELS
+QCELS
+Code for QCELS
