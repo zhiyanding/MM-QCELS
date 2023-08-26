@@ -1,9 +1,9 @@
-""" Main routines for QCELS 
+""" Main routines for MM-QCELS 
 
 Quantum complex exponential least squares (QCELS) can be used to
 estimate the eigenvalues with reduced circuit depth. 
 
-Last revision: 02/09/2023
+Last revision: 08/26/2023
 """
 
 import scipy.io as sio
@@ -32,51 +32,6 @@ def generate_ts_distribution(T,NT,gamma):
        ts=truncnorm.rvs(-gamma, gamma, loc=0, scale=T, size=NT)
     return ts
     
-def get_estimated_ground_energy_rough(d,delta,spectrum,population,Nsample,Nbatch):
-    
-    F_coeffs = fourier_filter.F_fourier_coeffs(d,delta)
-
-    compute_prob_X = lambda T: generate_cdf.compute_prob_X_(T,spectrum,population)
-    compute_prob_Y = lambda T: generate_cdf.compute_prob_Y_(T,spectrum,population)
-
-
-    outcome_X_arr, outcome_Y_arr, J_arr = generate_cdf.sample_XY(compute_prob_X, 
-                                compute_prob_Y, F_coeffs, Nsample, Nbatch) #Generate sample to calculate CDF
-
-    total_evolution_time = np.sum(np.abs(J_arr))
-    average_evolution_time = total_evolution_time/(Nsample*Nbatch)
-    maxi_evolution_time=max(np.abs(J_arr[0,:]))
-
-    Nx = 10
-    Lx = np.pi/3
-    ground_energy_estimate = 0.0
-    count = 0
-    #---"binary" search
-    while Lx > delta:
-        x = (2*np.arange(Nx)/Nx-1)*Lx +  ground_energy_estimate
-        y_avg = generate_cdf.compute_cdf_from_XY(x, outcome_X_arr, outcome_Y_arr, J_arr, F_coeffs)#Calculate the value of CDF
-        indicator_list = y_avg > (population[0]/2.05)
-        ix = np.nonzero(indicator_list)[0][0]
-        ground_energy_estimate = x[ix]
-        Lx = Lx/2
-        count += 1
-    
-    return ground_energy_estimate, count*total_evolution_time, maxi_evolution_time
-
-def generate_filtered_Z_est(spectrum,population,t,x,d,delta,Nsample,Nbatch):
-    
-    F_coeffs = fourier_filter.F_fourier_coeffs(d,delta)
-    compute_prob_X = lambda t_: generate_cdf.compute_prob_X_(t_,spectrum,population)
-    compute_prob_Y = lambda t_: generate_cdf.compute_prob_Y_(t_,spectrum,population)
-    #Calculate <\psi|F(H)\exp(-itH)|\psi>
-    outcome_X_arr, outcome_Y_arr, J_arr = generate_cdf.sample_XY_QCELS(compute_prob_X, 
-                                compute_prob_Y, F_coeffs, Nsample, Nbatch,t) #Generate samples using Hadmard test
-    y_avg = generate_cdf.compute_cdf_from_XY_QCELS(x, outcome_X_arr, outcome_Y_arr, J_arr, F_coeffs) 
-    total_time = np.sum(np.abs(J_arr))+t*Nsample*Nbatch
-    max_time= max(np.abs(J_arr[0,:]))+t
-    return y_avg, total_time, max_time
-
-
 def generate_Z_est(spectrum,population,tn,Nsample):
     N=len(tn)
     z=population.dot(np.exp(-1j*np.outer(spectrum,tn)))
@@ -89,7 +44,6 @@ def generate_Z_est(spectrum,population,tn,Nsample):
     Re=np.sum(Re_random<Re_true,axis=0)/Nsample
     Im=np.sum(Im_random<Im_true,axis=0)/Nsample
     Z_est = (2*Re-1)+1j*(2*Im-1)
-#     Z_est=population.dot(np.exp(-1j*np.outer(spectrum,tn)))
     max_time = max(np.abs(tn))
     total_time = sum(np.abs(tn))
     return Z_est, total_time, max_time 
@@ -127,18 +81,7 @@ def qcels_opt_fun_coeff(x, ts, Z_est, x0):
        Z_fit = Z_fit + (x[2*n]+1j*x[2*n+1])*np.exp(-1j*x0[3*n+2]*ts)
     return (np.linalg.norm(Z_fit-Z_est)**2/NT)
 
-def qcels_opt(ts, Z_est, x0, bounds = None, method = 'SLSQP'):
-
-    fun = lambda x: qcels_opt_fun(x, ts, Z_est)
-    if( bounds ):
-        res=minimize(fun,x0,method = 'SLSQP',bounds=bounds)
-    else:
-        res=minimize(fun,x0,method = 'SLSQP',bounds=bounds)
-
-    return res
-
 def qcels_opt_multimodal(ts, Z_est, x0, bounds = None, method = 'SLSQP'):
-    ###need modify
     fun = lambda x: qcels_opt_fun(x, ts, Z_est)
     N_x=int(len(x0)/3)
     bnds=np.zeros(6*N_x,dtype = 'float')
@@ -179,139 +122,6 @@ def qcels_opt_coeff_first(ts, Z_est, x0, bounds = None, method = 'SLSQP'):
     return x_out
 
 
-def qcels_largeoverlap(spectrum, population, T, NT, Nsample, lambda_prior):
-    """Multi-level QCELS for a system with a large initial overlap.
-
-    Description: The code of using Multi-level QCELS to estimate the ground state energy for a systems with a large initial overlap
-
-    Args: eigenvalues of the Hamiltonian: spectrum; 
-    overlaps between the initial state and eigenvectors: population; 
-    the depth for generating the data set: T; 
-    number of data pairs: NT; 
-    number of samples: Nsample; 
-    initial guess of \lambda_0: lambda_prior
-
-    Returns: an estimation of \lambda_0; 
-    maximal evolution time T_{max}; 
-    total evolution time T_{total}
-
-    """
-    total_time_all = 0.
-    max_time_all = 0.
-
-    N_level=int(np.log2(T/NT))
-    Z_est=np.zeros(NT,dtype = 'complex_')
-    tau=T/NT/(2**N_level)
-    ts=tau*np.arange(NT)
-    Z_est, total_time, max_time=generate_Z_est(
-            spectrum,population,ts,Nsample) #Approximate <\psi|\exp(-itH)|\psi> using Hadmard test
-    total_time_all += total_time
-    max_time_all = max(max_time_all, max_time)
-    #Step up and solve the optimization problem
-    x0=np.array((0.5,0,lambda_prior))
-    res = qcels_opt(ts, Z_est, x0)#Solve the optimization problem
-    #Update initial guess for next iteration
-    ground_coefficient_QCELS=res.x[0]
-    ground_coefficient_QCELS2=res.x[1]
-    ground_energy_estimate_QCELS=res.x[2]
-    #Update the estimation interval
-    lambda_min=ground_energy_estimate_QCELS-np.pi/(2*tau) 
-    lambda_max=ground_energy_estimate_QCELS+np.pi/(2*tau) 
-    #Iteration
-    for n_QCELS in range(N_level):
-        Z_est=np.zeros(NT,dtype = 'complex_')
-        tau=T/NT/(2**(N_level-n_QCELS-1)) #generate a sequence of \tau_j
-        ts=tau*np.arange(NT)
-        Z_est, total_time, max_time=generate_Z_est(
-                spectrum,population,ts,Nsample) #Approximate <\psi|\exp(-itH)|\psi> using Hadmard test
-        total_time_all += total_time
-        max_time_all = max(max_time_all, max_time)
-        #Step up and solve the optimization problem
-        x0=np.array((ground_coefficient_QCELS,ground_coefficient_QCELS2,ground_energy_estimate_QCELS))
-        bnds=((-np.inf,np.inf),(-np.inf,np.inf),(lambda_min,lambda_max)) 
-        res = qcels_opt(ts, Z_est, x0, bounds=bnds)#Solve the optimization problem
-        #Update initial guess for next iteration
-        ground_coefficient_QCELS=res.x[0]
-        ground_coefficient_QCELS2=res.x[1]
-        ground_energy_estimate_QCELS=res.x[2]
-        #Update the estimation interval
-        lambda_min=ground_energy_estimate_QCELS-np.pi/(2*tau) 
-        lambda_max=ground_energy_estimate_QCELS+np.pi/(2*tau) 
-
-    return res, total_time_all, max_time_all
-
-
-def qcels_smalloverlap(spectrum, population, T, NT, d, rel_gap, err_tol_rough, Nsample_rough, Nsample):
-    """Multi-level QCELS with a filtered data set for a system with a small initial overlap.
-   
-    Description: The codes of using Multi-level QCELS and eigenvalue filter to estimate the ground state energy for
-    a system with a small initial overlap
-
-    Args: eigenvalues of the Hamiltonian: spectrum; 
-    overlaps between the initial state and eigenvectors: population; 
-    the depth for generating the data set: T; 
-    number of data pairs: NT; 
-    number of samples for constructing the eigenvalue filter: Nsample_rough; 
-    number of samples for generating the data set: Nsample; 
-    initial guess of \lambda_0: lambda_prior
-    
-    Returns: an estimation of \lambda_0; 
-    maximal evolution time T_{max}; 
-    total evolution time T_{total}
-
-    """
-    total_time_all = 0.
-    max_time_all = 0.
-
-    lambda_prior, total_time_prior, max_time_prior = get_estimated_ground_energy_rough(
-            d,err_tol_rough,spectrum,population,Nsample_rough,Nbatch=1) #Get the rough estimation of the ground state energy
-    x = lambda_prior + rel_gap/2 #center of the eigenvalue filter
-    total_time_all += total_time_prior
-    max_time_all = max(max_time_all, max_time_prior)
-    
-    N_level=int(np.log2(T/NT))
-    Z_est=np.zeros(NT,dtype = 'complex_')
-    tau=T/NT/(2**N_level)
-    ts=tau*np.arange(NT)
-    for i in range(NT):
-        Z_est[i], total_time, max_time=generate_filtered_Z_est(
-                spectrum,population,ts[i],x,d,err_tol_rough,Nsample_rough,Nbatch=1)#Approximate <\psi|\exp(-itH)|\psi> using Hadmard test
-        total_time_all += total_time
-        max_time_all = max(max_time_all, max_time)
-    #Step up and solve the optimization problem
-    x0=np.array((0.5,0,lambda_prior))
-    res = qcels_opt(ts, Z_est, x0)#Solve the optimization problem
-    #Update initial guess for next iteration
-    ground_coefficient_QCELS=res.x[0]
-    ground_coefficient_QCELS2=res.x[1]
-    ground_energy_estimate_QCELS=res.x[2]
-    #Update the estimation interval
-    lambda_min=ground_energy_estimate_QCELS-np.pi/(2*tau)
-    lambda_max=ground_energy_estimate_QCELS+np.pi/(2*tau)
-    #Iteration
-    for n_QCELS in range(N_level):
-        Z_est=np.zeros(NT,dtype = 'complex_')
-        tau=T/NT/(2**(N_level-n_QCELS-1))
-        ts=tau*np.arange(NT)
-        for i in range(NT):
-            Z_est[i], total_time, max_time=generate_filtered_Z_est(
-                    spectrum,population,ts[i],x,d,err_tol_rough,Nsample,Nbatch=1)#Approximate <\psi|\exp(-itH)|\psi> using Hadmard test
-            total_time_all += total_time
-            max_time_all = max(max_time_all, max_time)
-        #Step up and solve the optimization problem
-        x0=np.array((ground_coefficient_QCELS,ground_coefficient_QCELS2,ground_energy_estimate_QCELS))
-        bnds=((-np.inf,np.inf),(-np.inf,np.inf),(lambda_min,lambda_max))
-        res = qcels_opt(ts, Z_est, x0, bounds=bnds)#Solve the optimization problem
-        #Update initial guess for next iteration
-        ground_coefficient_QCELS=res.x[0]
-        ground_coefficient_QCELS2=res.x[1]
-        ground_energy_estimate_QCELS=res.x[2]
-        #Update the estimation interval
-        lambda_min=ground_energy_estimate_QCELS-np.pi/(2*tau)
-        lambda_max=ground_energy_estimate_QCELS+np.pi/(2*tau)
-
-    return ground_energy_estimate_QCELS, total_time_all, max_time_all
-
 def qcels_multimodal(spectrum, population, T_0, T, NT_0, NT, gamma, K, lambda_prior):        
     """Multi-level QCELS for systems with multimodal.
 
@@ -339,34 +149,24 @@ def qcels_multimodal(spectrum, population, T_0, T, NT_0, NT, gamma, K, lambda_pr
         spectrum,population,T_0,NT_0,gamma) #Approximate <\psi|\exp(-itH)|\psi> using Hadmard test
     total_time_all += total_time
     max_time_all = max(max_time_all, max_time)
-    N_initial=100
+    N_initial=10
     lambda_prior_collect=np.zeros((N_initial,len(lambda_prior)),dtype = 'float')
     lambda_prior_collect[0,:]=lambda_prior
     for n in range(N_initial-1):
-        lambda_prior_collect[n+1,:]=np.random.uniform(-1,0,K)
+        lambda_prior_collect[n+1,:]=np.random.uniform(spectrum[0],spectrum[-1],K)
     #Step up and solve the optimization problem
     Residue=np.inf
-    for p in range(N_initial):#try different initial
+    for p in range(N_initial):#try different initial to make sure find global minimal
         lambda_prior_new=lambda_prior_collect[p,:]
         for n in range(K):
            x0[3*n:3*n+3]=np.array((np.random.uniform(0,1),0,lambda_prior_new[n]))
-        #print(x0)
-        #x0 = qcels_opt_coordinate_wise(ts, Z_est, x0)
         x0 = qcels_opt_coeff_first(ts, Z_est, x0)
-#         if p==0:
-#            print('first=',x0)
-#            print('residue=',qcels_opt_fun(x0, ts, Z_est))
-        #print(x0)
         res = qcels_opt_multimodal(ts, Z_est, x0)#Solve the optimization problem
-#         if p==0:
-#             print('second=',res.x)
-#             print('residue=',res.fun)
-        #Update initial guess for next iteration
         if res.fun<Residue:
             x0_fix=np.array(res.x)
             Residue=res.fun
-        #print(x0)
-        #Update the estimation interval
+    #Update initial guess for next iteration
+    #Update the estimation interval
     x0=x0_fix
     bnds=np.zeros(6*K,dtype = 'float')
     for n in range(K):
@@ -400,52 +200,6 @@ def qcels_multimodal(spectrum, population, T_0, T, NT_0, NT, gamma, K, lambda_pr
         bnds= [(bnds[i], bnds[i+1]) for i in range(0, len(bnds), 2)]
     #print(x0,'one iteration ends',T)
     return x0, total_time_all, max_time_all
-
-def qcels_multimodal_onestep(spectrum, population, T, NT, gamma, K):        
-    """Multi-level QCELS for systems with multimodal.
-
-    Description: The code of using Multi-level QCELS to estimate the multiple dominant eigenvalues.
-
-    Args: eigenvalues of the Hamiltonian: spectrum; 
-    overlaps between the initial state and eigenvectors: population; 
-    the depth for generating the data set: T_0mT; 
-    number of data pairs: NT_0, NT; 
-    gaussian cutoff constant: gamma; 
-    initial guess of multiple dominant eigenvalues: lambda_prior
-    Number of dominant eigenvalues: K
-    
-    Returns: an estimation of multiple dominant eigenvalues; 
-    maximal evolution time T_{max}; 
-    total evolution time T_{total}
-
-    """
-    total_time_all = 0.
-    max_time_all = 0.
-    Z_est=np.zeros(NT,dtype = 'complex_')
-    Z_est, ts, total_time, max_time=generate_Z_est_multimodal(
-            spectrum,population,T,NT,gamma) #Approximate <\psi|\exp(-itH)|\psi> using Hadmard test
-    total_time_all += total_time
-    max_time_all = max(max_time_all, max_time)
-#    x0=spectrum[0]+np.random.uniform(-np.pi,np.pi,1000)/T
-    x0=np.linspace(-np.pi,np.pi,int(max(100,T)))
-    bnds=np.zeros(6*K,dtype = 'float')
-    for n in range(K):
-       bnds[6*n]=-np.infty
-       bnds[6*n+1]=np.infty
-       bnds[6*n+2]=-np.infty
-       bnds[6*n+3]=np.infty
-       bnds[6*n+4]=-np.pi
-       bnds[6*n+5]=np.pi
-    bnds= [(bnds[i], bnds[i+1]) for i in range(0, len(bnds), 2)]
-    #Iteration
-    res_f=np.inf
-    for n in range(len(x0)):
-        #Step up and solve the optimization problem
-        res = qcels_opt_multimodal(ts, Z_est, np.array([0.5,0,x0[n]]), bounds=bnds)#Solve the optimization problem
-        if res.fun<res_f:
-                res_f=res.fun
-                theta_star=res.x[2]
-    return theta_star, total_time_all, max_time_all
 
 if __name__ == "__main__":
     import scipy.io as sio
